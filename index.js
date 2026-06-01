@@ -930,6 +930,25 @@ function buildPreExperiment(jsPsych) {
                 research study. Please print a copy of this page for your records.</p>`,
             html    : '<input type="checkbox" id="consent" required> <strong>I Consent to Participate</strong>',
         },
+        // ── Experiment instructions / cover story ──────────────────────────────
+        {
+            type         : surveyHtmlForm,
+            preamble: `
+                <h2>Experiment Instructions</h2>
+                <p style="text-align:left;">We recently videotaped a public park where nearby
+                children go, with the goal of capturing the essence of children's behaviors within
+                a familiar park setting. To protect the identities of these young people, we used
+                an algorithm that represents a pair of children as two dots, each tracing the path
+                of an individual child. </p>
+
+                <p style="text-align:left;">In this study, you will watch the videos and make judgments
+                 about the social interactions depicted. After each video, click on "play" or "fight" to 
+                 indicate your judgment. Then, indicate how confident you are in your judgment using 
+                 the slider.</p>`,
+            html         : ' ',
+            button_label : 'Continue',
+            response_ends_trial: true,
+        },
         // Device / environment
         {
             type         : surveyHtmlForm,
@@ -945,13 +964,12 @@ function buildPreExperiment(jsPsych) {
         {
             type    : surveyHtmlForm,
             preamble: `
-                <h2>Audio Setup</h2>
-                <p>This experiment contains videos with sound.</p>
+                <h2>Audio Setup</h2>\
                 <p>Please make sure your <strong>volume is turned up</strong> and
                 you are wearing <strong>headphones</strong> if possible.</p>
-                <p>Click the button below to enable audio, then continue.</p>`,
+                <p>Click the button below continue.</p>`,
             html    : ' ',
-            button_label: 'Enable Audio & Continue',
+            button_label: 'Continue',
             response_ends_trial: true,
             on_finish: function () {
                 // Play a silent buffer through AudioContext to unlock audio autoplay
