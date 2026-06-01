@@ -625,19 +625,19 @@ function buildPracticeBlock(mapping) {
         },
         // Practice trial 1 (low speed)
         { type: CallFunctionPlugin, func: () => { document.body.style.cursor = 'none'; } },
-        buildVideoTrial(pracLowInfo),
+        { ...buildVideoTrial(pracLowInfo), data: { ...buildVideoTrial(pracLowInfo).data, isPractice: true } },
         buildITI(),
-        { ...respTrial },
+        { ...respTrial, data: { ...respTrial.data, isPractice: true } },
         buildITI(),
-        { ...confTrial },
+        { ...confTrial, data: { ...confTrial.data, isPractice: true } },
         buildITI(),
         // Practice trial 2 (high speed)
         { type: CallFunctionPlugin, func: () => { document.body.style.cursor = 'none'; } },
-        buildVideoTrial(pracHighInfo),
+        { ...buildVideoTrial(pracHighInfo), data: { ...buildVideoTrial(pracHighInfo).data, isPractice: true } },
         buildITI(),
-        { ...respTrial },
+        { ...respTrial, data: { ...respTrial.data, isPractice: true } },
         buildITI(),
-        { ...confTrial },
+        { ...confTrial, data: { ...confTrial.data, isPractice: true } },
         buildITI(),
         // Restore cursor after practice
         { type: CallFunctionPlugin, func: () => { document.body.style.cursor = 'auto'; } },
@@ -678,13 +678,26 @@ function buildMainExperiment(blocks, mapping) {
         });
 
         for (const trialInfo of blocks[b]) {
+            // Stamp the video's identifying metadata onto the response and
+            // confidence rows too, so every row carries the trial identity.
+            // (Without this, only the video_playback row knows trialID/speed/etc.,
+            // which is why those columns were blank on the response/confidence rows.)
+            const trialMeta = {
+                trialID        : trialInfo.trialID,
+                soundCondition : trialInfo.soundCondition,
+                chargeSpeed    : trialInfo.chargeSpeed,
+                leftColor      : trialInfo.left_color,
+            };
+
             trials.push(
                 { type: CallFunctionPlugin, func: () => { document.body.style.cursor = 'none'; } },
                 buildVideoTrial(trialInfo),
                 buildITI(),
-                { ...respTrial },  // shallow copy so each instance is independent
+                // shallow copy so each instance is independent; merge trial metadata
+                // into its data object so the response row is self-identifying.
+                { ...respTrial, data: { ...respTrial.data, ...trialMeta } },
                 buildITI(),
-                { ...confTrial },
+                { ...confTrial, data: { ...confTrial.data, ...trialMeta } },
                 buildITI(),
             );
         }
@@ -852,11 +865,29 @@ function buildHeadphoneCheck() {
 
 function buildPreExperiment(jsPsych) {
     return [
-        // Prolific ID
+        // Prolific ID — only ask manually if it wasn't captured from the URL.
+        // On a normal Prolific launch the ID arrives as ?PROLIFIC_PID=... and is
+        // already stored via addProperties() in runExperiment(), so this step is
+        // skipped. The conditional_function checks the stored value at run time.
         {
-            type    : surveyHtmlForm,
-            preamble: '<p>Please enter your <strong>Prolific ID</strong> to begin.</p>',
-            html    : '<input id="prolific_id" type="text" name="prolific_id" size="40" required>',
+            timeline: [
+                {
+                    type    : surveyHtmlForm,
+                    preamble: '<p>Please enter your <strong>Prolific ID</strong> to begin.</p>',
+                    html    : '<input id="prolific_id" type="text" name="prolific_id" size="40" required>',
+                    on_finish: function (data) {
+                        // Use the typed ID as the subject_id so downstream saving
+                        // (which reads subject_id) works in the no-URL fallback case.
+                        const typed = data.response?.prolific_id;
+                        if (typed) jsPsych.data.addProperties({ subject_id: typed });
+                    },
+                },
+            ],
+            conditional_function: function () {
+                // Run this form only if no ID was captured from the URL.
+                const existing = jsPsych.data.get().values()[0]?.subject_id;
+                return !existing;
+            },
         },
         // Consent
         {
@@ -1051,6 +1082,107 @@ function buildRefreshRateCheck() {
 
 
 // ════════════════════════════════════════════════════════════
+//  12b.  TIDY TRIAL TABLE (one row per played video)
+// ════════════════════════════════════════════════════════════
+
+/**
+ * buildTidyTrials()
+ * -----------------
+ * Walks the raw jsPsych data in presentation order and consolidates each
+ * experimental trial — which spans THREE jsPsych rows (video_playback →
+ * play_fight_response → confidence_rating) — into a SINGLE tidy row.
+ *
+ * One row is emitted per played video. `trial_number` increments only when a
+ * video has played (practice trials are excluded). `id` is the participant's
+ * Prolific PID, identical on every row.
+ *
+ * Output columns:
+ *   id, trial_number, trialID, soundCondition, chargeSpeed, leftColor,
+ *   response, response_rt, confidence, confidence_rt
+ *
+ * Assumes the canonical per-trial order video → response → confidence, which is
+ * how buildMainExperiment() assembles the timeline. We anchor on each
+ * video_playback row and read forward to the next response and confidence rows,
+ * so intervening ITI rows don't matter.
+ *
+ * Returns: Array<Object> — one object per trial.
+ */
+function buildTidyTrials() {
+    const all = jsPsych.data.get().values();
+
+    // Participant ID is added via addProperties, so it's on every row; grab the
+    // first non-empty one as a fallback.
+    const participantId =
+        all.find(r => r.subject_id)?.subject_id ?? null;
+
+    const tidy = [];
+    let trialNumber = 0;
+
+    for (let i = 0; i < all.length; i++) {
+        const row = all[i];
+        if (row.task !== 'video_playback') continue;
+        if (row.isPractice) continue;  // skip practice videos
+
+        // Read forward from this video row to find its response and confidence
+        // rows (the next ones of each task type before the next video).
+        let responseRow   = null;
+        let confidenceRow = null;
+        for (let j = i + 1; j < all.length; j++) {
+            const next = all[j];
+            if (next.task === 'video_playback') break;  // reached the next trial
+            if (next.task === 'play_fight_response' && !responseRow)   responseRow   = next;
+            if (next.task === 'confidence_rating'   && !confidenceRow) confidenceRow = next;
+            if (responseRow && confidenceRow) break;
+        }
+
+        trialNumber += 1;
+
+        tidy.push({
+            id             : participantId,
+            trial_number   : trialNumber,
+            // Identifiers come off the video row (always present there).
+            trialID        : row.trialID        ?? null,
+            soundCondition : row.soundCondition ?? null,
+            chargeSpeed    : row.chargeSpeed     ?? null,
+            leftColor      : row.leftColor       ?? null,
+            // Binary choice, normalised to lowercase 'play' / 'fight'.
+            response       : responseRow
+                ? (responseRow.is_fight ? 'fight' : 'play')
+                : null,
+            response_rt    : responseRow?.rt ?? null,        // ms, from button click
+            // Confidence rating (slider value) and its own RT.
+            confidence     : confidenceRow?.confidence_rating ?? null,
+            confidence_rt  : confidenceRow?.rt ?? null,      // ms, time to confirm
+        });
+    }
+
+    return tidy;
+}
+
+/**
+ * tidyTrialsToCSV(rows)
+ * ---------------------
+ * Converts the buildTidyTrials() array into a CSV string with a header row.
+ * Values are quoted and internal quotes escaped (RFC 4180 style).
+ */
+function tidyTrialsToCSV(rows) {
+    const columns = [
+        'id', 'trial_number', 'trialID', 'soundCondition',
+        'chargeSpeed', 'leftColor', 'response', 'response_rt',
+        'confidence', 'confidence_rt',
+    ];
+    const escape = (v) => {
+        if (v === null || v === undefined) return '';
+        const s = String(v);
+        return `"${s.replace(/"/g, '""')}"`;
+    };
+    const header = columns.map(escape).join(',');
+    const body   = rows.map(r => columns.map(c => escape(r[c])).join(',')).join('\n');
+    return `${header}\n${body}`;
+}
+
+
+// ════════════════════════════════════════════════════════════
 //  13.  DATA SAVING & PROLIFIC REDIRECT
 // ════════════════════════════════════════════════════════════
 
@@ -1069,6 +1201,9 @@ function saveAndReturn(startExperimentTime) {
 
     // ── Pull all trial data from jsPsych ──────────────────────
     const allData        = jsPsych.data.get().values();
+
+    // Tidy table: one consolidated row per played video (see buildTidyTrials).
+    const tidyTrials     = buildTidyTrials();
 
     // Video playback trials — one row per video shown
     const videoTrials    = jsPsych.data.get().filter({ task: 'video_playback' }).values();
@@ -1124,6 +1259,10 @@ function saveAndReturn(startExperimentTime) {
         hc_numTrials     : hcData?.hc_numTrials      ?? null,
 
         // ── Trial-level data ──
+        // Tidy table: one row per played video with exactly the analysis columns
+        // (id, trial_number, trialID, soundCondition, chargeSpeed, leftColor,
+        //  response, response_rt, confidence, confidence_rt).
+        tidyTrials,
         videoTrials,      // trialID, soundCondition, chargeSpeed, leftColor, ISI_ms, videoSrc
         responseTrials,   // response_label, is_fight, RT
         confTrials,       // confidence_rating (0–100)
@@ -1172,8 +1311,18 @@ async function runExperiment() {
         show_progress_bar  : true,
         on_finish: function () {
             if (DEBUG) {
-                jsPsych.data.get().localSave('csv', 'debug_data.csv');
-                console.log('DEBUG: data saved to debug_data.csv');
+                // Save the TIDY table (one row per played video) rather than the
+                // raw jsPsych dump, so the debug file already has the analysis
+                // columns: id, trial_number, trialID, soundCondition, chargeSpeed,
+                // leftColor, response, response_rt, confidence, confidence_rt.
+                const csv  = tidyTrialsToCSV(buildTidyTrials());
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const a    = document.createElement('a');
+                a.href     = URL.createObjectURL(blob);
+                a.download = 'debug_data_tidy.csv';
+                a.click();
+                URL.revokeObjectURL(a.href);
+                console.log('DEBUG: tidy data saved to debug_data_tidy.csv');
             } else {
                 saveAndReturn(startExperimentTime);
             }
