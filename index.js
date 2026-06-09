@@ -14,8 +14,7 @@
  *  Per-trial data logged: trialID, soundCondition, chargeSpeed,
  *    leftColor, repetition, ISI_ms, response, RT, confidenceRating
  *
- *  Data saving: jsPsych.data.get().json() / .csv() at experiment end.
- *  Add your own save mechanism (Firebase, JATOS, server POST) in
+ *  Data saving: jsPsych.data.get().json() at experiment end.
  *  the on_finish callback of runExperiment() below.
  * ============================================================
  */
@@ -71,7 +70,7 @@ const COLORS            = ['black', 'grey'];
 const VIDEO_BASE_PATH   = './videos';
 
 // Number of blocks
-const N_BLOCKS          = DEBUG ? 1 : 6;
+const N_BLOCKS          = DEBUG ? 1 : 6;   
 
 
 
@@ -422,7 +421,7 @@ function buildResponseTrial(labelLeft, labelRight) {
     return {
         type                : htmlButtonResponse,
         stimulus            : `
-            <p>Did the interaction look like the dots were <strong>playing</strong> or <strong>fighting</strong>?</p>
+            <p>Did the interaction look like <strong>playing</strong> or <strong>fighting</strong>?</p>
             <p>Click your choice below.</p>`,
         // Buttons render left-to-right in this array order.
         choices             : [labelLeft, labelRight],
@@ -614,7 +613,7 @@ function buildPracticeBlock(mapping) {
                 <p>You will now watch two short practice videos to get familiar with the task.</p>
                 <p>After each video, you will be asked:</p>
                 <ul style="text-align:left; display:inline-block;">
-                    <li>Whether the dots appeared to be <strong>playing</strong> or <strong>fighting</strong></li>
+                    <li>Whether the depicted interaction appeared to be <strong>playing</strong> or <strong>fighting</strong></li>
                     <li>How <strong>confident</strong> you are in your answer</li>
                 </ul>
                 <p>After each video, click <b>${labelLeft}</b> or <b>${labelRight}</b>,
@@ -668,7 +667,7 @@ function buildMainExperiment(blocks, mapping) {
             type              : surveyHtmlForm,
             preamble: `
                 <p><strong>Block ${b + 1} of ${blocks.length}</strong></p>
-                <p>Watch each video and decide: are the dots <strong>playing</strong> or
+                <p>Watch each video and decide: <strong>playing</strong> or
                 <strong>fighting</strong>?</p>
                 <p>Click <b>${labelLeft}</b> or <b>${labelRight}</b> after each video,
                    then rate your confidence with the slider.</p>`,
@@ -739,17 +738,17 @@ function buildDemographicSurvey() {
             type : surveyMultiChoice,
             questions: [
                 {
-                    prompt    : '<strong>How would you describe your gender?</strong> (optional)',
+                    prompt    : '<strong>How would you describe your gender?</strong>',
                     name      : 'gender',
                     options   : ['Male', 'Female', 'Non-binary / Other', 'Prefer not to say'],
-                    required  : false,
+                    required  : true,
                     horizontal: true,
                 },
                 {
-                    prompt    : '<strong>Are you of Hispanic or Latinx origin?</strong> (optional)',
+                    prompt    : '<strong>Are you of Hispanic or Latinx origin?</strong>',
                     name      : 'hispanic',
                     options   : ['Yes', 'No', 'Unknown / Prefer not to say'],
-                    required  : false,
+                    required  : true,
                     horizontal: true,
                 },
             ],
@@ -757,7 +756,7 @@ function buildDemographicSurvey() {
         {
             type : surveyMultiSelect,
             questions: [{
-                prompt  : '<strong>How would you describe your race?</strong> (optional)',
+                prompt  : '<strong>How would you describe your race?</strong>',
                 name    : 'race',
                 options : [
                     'American Indian / Alaska Native',
@@ -768,7 +767,7 @@ function buildDemographicSurvey() {
                     'More than one race',
                     'Unknown / Prefer not to say',
                 ],
-                required  : false,
+                required  : true,
                 horizontal: false,
             }],
         },
@@ -786,11 +785,11 @@ function buildDemographicSurvey() {
         },
         {
             type    : surveyHtmlForm,
-            preamble: '<p style="text-align:left;"><strong>Did you use any strategies to complete the task?</strong></p>',
+            preamble: '<p style="text-align:left;"><strong>Did you use any strategies to complete the task? (optional)</strong></p>',
             html: `
-                <input type="text" name="strategy" style="width:500px;" required><br><br>
-                <p style="text-align:left;"><strong>Any other feedback about the task?</strong></p>
-                <input type="text" name="feedback" style="width:500px;" required>`,
+                <input type="text" name="strategy" style="width:500px;"><br><br>
+                <p style="text-align:left;"><strong>Any other feedback about the task? (optional)</strong></p>
+                <input type="text" name="feedback" style="width:500px;">`,
         },
     ];
 }
@@ -966,11 +965,11 @@ function buildPreExperiment(jsPsych) {
             type         : surveyHtmlForm,
             preamble: `
                 <h2>Experiment Instructions</h2>
-                <p style="text-align:left;">We recently videotaped a public park where nearby
-                children go, with the goal of capturing the essence of children's behaviors within
-                a familiar park setting. To protect the identities of these young people, we used
-                an algorithm that represents a pair of children as two dots, each tracing the path
-                of an individual child. </p>
+                <p style="text-align:left;">We recently videotaped a public park where nearby children go and 
+                recorded the sounds as they interacted, with the goal of capturing the essence of children's 
+                behaviors within a familiar park setting. To protect the identities of these young people, we 
+                used an algorithm that represents a pair of children as two dots, each tracing the path of an 
+                individual child, and replaced actual voices with a scrambled noise signal. </p>
 
                 <p style="text-align:left;">In this study, you will watch the videos and make judgments
                  about the social interactions depicted. After each video, click on "play" or "fight" to 
@@ -1275,7 +1274,9 @@ function saveAndReturn(startExperimentTime) {
     const dataToServer = {
         id             : subject_id ?? ('anon_' + Date.now()),
         experimenter   : 'YF',
-        experimentName : 'audiovisual_socialfrommotion_pilot',  // ⚠️ update per study
+        experimentName : DEBUG
+                           ? 'audiovisual_socialfrommotion_DEBUG'   // ⚠️ separate name for debug
+                           : 'audiovisual_socialfrommotion_pilot',  // ⚠️ update experimentName per study
         curData        : JSON.stringify(curData),
     };
 
@@ -1323,6 +1324,7 @@ async function runExperiment() {
                 a.click();
                 URL.revokeObjectURL(a.href);
                 console.log('DEBUG: tidy data saved to debug_data_tidy.csv');
+                saveAndReturn(startExperimentTime);
             } else {
                 saveAndReturn(startExperimentTime);
             }
