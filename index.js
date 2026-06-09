@@ -736,6 +736,9 @@ function buildDemographicSurvey() {
         },
         {
             type : surveyMultiChoice,
+            // task:'demographic' lets saveAndReturn() collect every demographic
+            // answer with one filter instead of digging through rawData.
+            data : { task: 'demographic' },
             questions: [
                 {
                     prompt    : '<strong>How would you describe your gender?</strong>',
@@ -755,6 +758,7 @@ function buildDemographicSurvey() {
         },
         {
             type : surveyMultiSelect,
+            data : { task: 'demographic' },
             questions: [{
                 prompt  : '<strong>How would you describe your race?</strong>',
                 name    : 'race',
@@ -773,6 +777,7 @@ function buildDemographicSurvey() {
         },
         {
             type    : surveyHtmlForm,
+            data    : { task: 'demographic' },
             preamble: '',
             html: `
                 <p style="text-align:left;">
@@ -785,6 +790,7 @@ function buildDemographicSurvey() {
         },
         {
             type    : surveyHtmlForm,
+            data    : { task: 'demographic' },
             preamble: '<p style="text-align:left;"><strong>Did you use any strategies to complete the task? (optional)</strong></p>',
             html: `
                 <input type="text" name="strategy" style="width:500px;"><br><br>
@@ -792,6 +798,28 @@ function buildDemographicSurvey() {
                 <input type="text" name="feedback" style="width:500px;">`,
         },
     ];
+}
+
+/**
+ * buildDemographics()
+ * -------------------
+ * Flattens all task:'demographic' survey responses into a single object,
+ * e.g. { gender, hispanic, race, age, location, strategy, feedback }.
+ * surveyMultiSelect returns arrays (e.g. race) — joined with '; ' for a flat cell.
+ * Called by saveAndReturn() so the saved file carries one tidy demographics
+ * object instead of several scattered survey rows.
+ */
+function buildDemographics() {
+    const rows = jsPsych.data.get().filter({ task: 'demographic' }).values();
+    const demo = {};
+    for (const row of rows) {
+        const resp = row.response;
+        if (!resp || typeof resp !== 'object') continue;
+        for (const [key, val] of Object.entries(resp)) {
+            demo[key] = Array.isArray(val) ? val.join('; ') : val;
+        }
+    }
+    return demo;
 }
 
 
@@ -1144,10 +1172,16 @@ function buildTidyTrials() {
             soundCondition : row.soundCondition ?? null,
             chargeSpeed    : row.chargeSpeed     ?? null,
             leftColor      : row.leftColor       ?? null,
+            // ISI and repetition also come off the video row — needed as
+            // analysis covariates (ISI counterbalancing) but otherwise only
+            // present in the raw video rows, forcing a separate merge.
+            ISI_ms         : row.ISI_ms         ?? null,
+            repetition     : row.repetition      ?? null,
             // Binary choice, normalised to lowercase 'play' / 'fight'.
             response       : responseRow
                 ? (responseRow.is_fight ? 'fight' : 'play')
                 : null,
+            is_fight       : responseRow ? (responseRow.is_fight ? 1 : 0) : null,
             response_rt    : responseRow?.rt ?? null,        // ms, from button click
             // Confidence rating (slider value) and its own RT.
             confidence     : confidenceRow?.confidence_rating ?? null,
@@ -1167,7 +1201,8 @@ function buildTidyTrials() {
 function tidyTrialsToCSV(rows) {
     const columns = [
         'id', 'trial_number', 'trialID', 'soundCondition',
-        'chargeSpeed', 'leftColor', 'response', 'response_rt',
+        'chargeSpeed', 'leftColor', 'ISI_ms', 'repetition',
+        'response', 'is_fight', 'response_rt',
         'confidence', 'confidence_rt',
     ];
     const escape = (v) => {
@@ -1198,77 +1233,59 @@ function saveAndReturn(startExperimentTime) {
     const endTime   = new Date();
     const totalTime = endTime - startExperimentTime;
 
-    // ── Pull all trial data from jsPsych ──────────────────────
-    const allData        = jsPsych.data.get().values();
-
-    // Tidy table: one consolidated row per played video (see buildTidyTrials).
-    const tidyTrials     = buildTidyTrials();
-
-    // Video playback trials — one row per video shown
-    const videoTrials    = jsPsych.data.get().filter({ task: 'video_playback' }).values();
-
-    // Play/fight responses — one row per response
-    const responseTrials = jsPsych.data.get().filter({ task: 'play_fight_response' }).values();
-
-    // Confidence ratings — one row per rating
-    const confTrials     = jsPsych.data.get().filter({ task: 'confidence_rating' }).values();
-
-    // Demographic survey responses
-    const demographics   = jsPsych.data.get().filter({ task: 'demographic' }).values();
+    // ── The two analysis-ready tables ─────────────────────────
+    // trials:       one row per real (non-practice) trial, every analysis column
+    //               already present (see buildTidyTrials). -> pd.DataFrame(curData.trials)
+    // demographics: one flat object of survey answers (see buildDemographics).
+    //               -> pd.DataFrame([curData.demographics])
+    const trials       = buildTidyTrials();
+    const demographics = buildDemographics();
 
     // Headphone check result
-    const hcData         = jsPsych.data.get().filter({ task: 'headphone_check' }).values()[0];
+    const hcData       = jsPsych.data.get().filter({ task: 'headphone_check' }).values()[0];
 
-    // Refresh rate
-    const refreshRate    = jsPsych.data.get().filter({ task: undefined }).values()
-                             .find(d => d.refresh_rate_hz)?.refresh_rate_hz ?? null;
+    // Refresh rate (logged once during the refresh-rate check)
+    const refreshRate  = jsPsych.data.get().values()
+                           .find(d => d.refresh_rate_hz)?.refresh_rate_hz ?? null;
 
     // Prolific / session IDs (added at experiment start)
-    const subject_id     = jsPsych.data.get().values()[0]?.subject_id ?? null;
-    const study_id       = jsPsych.data.get().values()[0]?.study_id   ?? null;
-    const session_id     = jsPsych.data.get().values()[0]?.session_id ?? null;
+    const subject_id   = jsPsych.data.get().values()[0]?.subject_id ?? null;
+    const study_id     = jsPsych.data.get().values()[0]?.study_id   ?? null;
+    const session_id   = jsPsych.data.get().values()[0]?.session_id ?? null;
 
-    const curData = {
-        // ── Participant & session info ──
-        subject_id,
-        study_id,
-        session_id,
-        institution      : 'Prolific',
-        begTime          : startExperimentTime,
+    // Fold session/participant metadata INTO the demographics object so the
+    // demographic DataFrame is self-contained (one row, everything about the
+    // participant). subject_id is the key to join trials <-> demographics.
+    Object.assign(demographics, {
+        subject_id, study_id, session_id,
+        institution     : 'Prolific',
+        begTime         : startExperimentTime,
         endTime,
         totalTime,
-
-        // ── Display info ──
-        windowWidth      : window.innerWidth,
-        windowHeight     : window.innerHeight,
-        screenWidth      : screen.width,
-        screenHeight     : screen.height,
+        experimentName  : 'audio_visual_socialperception',  // ⚠️ update per study
+        debug           : DEBUG,
+        nBlocks         : N_BLOCKS,
+        windowWidth     : window.innerWidth,
+        windowHeight    : window.innerHeight,
+        screenWidth     : screen.width,
+        screenHeight    : screen.height,
         refreshRate,
+        hc_passed       : hcData?.hc_passed       ?? null,
+        hc_totalCorrect : hcData?.hc_totalCorrect ?? null,
+        hc_numTrials    : hcData?.hc_numTrials     ?? null,
+    });
 
-        // ── Experiment params ──
-        experimentName   : 'audio_visual_socialperception',  // ⚠️ update per study
-        debug            : DEBUG,
-        nBlocks          : N_BLOCKS,
-        soundConditions  : SOUND_CONDITIONS,
-        speedLevels      : SPEED_LEVELS,
+    // Stamp subject_id onto every trial row so the two tables join cleanly.
+    trials.forEach(t => { t.subject_id = subject_id; });
 
-        // ── Headphone check ──
-        hc_passed        : hcData?.hc_passed        ?? null,
-        hc_totalCorrect  : hcData?.hc_totalCorrect  ?? null,
-        hc_numTrials     : hcData?.hc_numTrials      ?? null,
+    const curData = {
+        // Two clean tables — this is all the analysis needs.
+        trials,         // pd.DataFrame(curData.trials)
+        demographics,   // pd.DataFrame([curData.demographics])
 
-        // ── Trial-level data ──
-        // Tidy table: one row per played video with exactly the analysis columns
-        // (id, trial_number, trialID, soundCondition, chargeSpeed, leftColor,
-        //  response, response_rt, confidence, confidence_rt).
-        tidyTrials,
-        videoTrials,      // trialID, soundCondition, chargeSpeed, leftColor, ISI_ms, videoSrc
-        responseTrials,   // response_label, is_fight, RT
-        confTrials,       // confidence_rating (0–100)
-        demographics,
-
-        // ── Full raw jsPsych dump (for completeness) ──
-        rawData          : allData,
+        // Raw jsPsych dump kept ONLY in debug, for troubleshooting. In a live
+        // run we omit it to keep the saved file small and unambiguous.
+        ...(DEBUG ? { rawData: jsPsych.data.get().values() } : {}),
     };
 
     const dataToServer = {
