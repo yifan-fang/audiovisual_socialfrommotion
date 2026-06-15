@@ -30,7 +30,7 @@ Contact Ray Gonzalez raygon@mit.edu or Kevin J. P. Woods kwoods@mit.edu
   // override any default values you wish to change.
   var headphoneCheckDefaultConfig = {jsonPath: undefined,
                               totalTrials: 6,
-                              trialsPerPage: 3,
+                              trialsPerPage: 6,
                               correctThreshold: 5/6,
                               useSequential: true,
                               doShuffleTrials: true,
@@ -96,14 +96,14 @@ Contact Ray Gonzalez raygon@mit.edu or Kevin J. P. Woods kwoods@mit.edu
 
     if (jsonPath === undefined) {
       var data = {'stimuli':[
-                    {'id': 1, 'src': 'https://s3.amazonaws.com/mcd-headphone-check/v1.0/assets/antiphase_HC_ISO.wav', 'correct': '2'},
-                    {'id': 2, 'src': 'https://s3.amazonaws.com/mcd-headphone-check/v1.0/assets/antiphase_HC_IOS.wav', 'correct': '3'},
-                    {'id': 3, 'src': 'https://s3.amazonaws.com/mcd-headphone-check/v1.0/assets/antiphase_HC_SOI.wav', 'correct': '1'},
-                    {'id': 4, 'src': 'https://s3.amazonaws.com/mcd-headphone-check/v1.0/assets/antiphase_HC_SIO.wav', 'correct': '1'},
-                    {'id': 5, 'src': 'https://s3.amazonaws.com/mcd-headphone-check/v1.0/assets/antiphase_HC_OSI.wav', 'correct': '2'},
-                    {'id': 6, 'src': 'https://s3.amazonaws.com/mcd-headphone-check/v1.0/assets/antiphase_HC_OIS.wav', 'correct': '3'}
+                    {'id': 1, 'src': 'headphoneCheckAudios/antiphase_HC_ISO.wav', 'correct': '2'},
+                    {'id': 2, 'src': 'headphoneCheckAudios/antiphase_HC_IOS.wav', 'correct': '3'},
+                    {'id': 3, 'src': 'headphoneCheckAudios/antiphase_HC_SOI.wav', 'correct': '1'},
+                    {'id': 4, 'src': 'headphoneCheckAudios/antiphase_HC_SIO.wav', 'correct': '1'},
+                    {'id': 5, 'src': 'headphoneCheckAudios/antiphase_HC_OSI.wav', 'correct': '2'},
+                    {'id': 6, 'src': 'headphoneCheckAudios/antiphase_HC_OIS.wav', 'correct': '3'}
                   ],
-        'calibration': {'src': 'https://s3.amazonaws.com/mcd-headphone-check/v1.0/assets/noise_calib_stim.wav'}
+        'calibration': {'src': 'headphoneCheckAudios/noise_calib_stim.wav'}
       };
       var status = 'loadedDefault';
       var error;
@@ -137,7 +137,11 @@ Contact Ray Gonzalez raygon@mit.edu or Kevin J. P. Woods kwoods@mit.edu
     // render boilerplate instruction text
     $('<div/>', {
       class: 'hc-instruction',
-      html: 'When you hit <b>Play</b>, you will hear three sounds separated by silences.'
+      html: 'The following tests will determine if you are wearing headphones. '
+    }).appendTo($('#hc-container'));
+    $('<div/>', {
+      class: 'hc-instruction',
+      html: 'In each test, when you hit <b>Play</b>, you will hear three sounds separated by silences.'
     }).appendTo($('#hc-container'));
     $('<div/>', {
       class: 'hc-instruction',
