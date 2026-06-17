@@ -55,7 +55,7 @@ var jsPsych;
 // ── Debug mode ───────────────────────────────────────────────
 // Set DEBUG = 1 to run a short 3-trial version for testing.
 // Set DEBUG = 0 for the full experiment.
-const DEBUG = 1;
+const DEBUG = 0;
 
 // Speed levels and which ones get extra videos
 const SPEED_LEVELS      = [1.5, 2.75, 4, 5.25, 6.5, 7.75, 9];
@@ -590,15 +590,17 @@ function randomiseResponseMapping() {
 function buildPracticeBlock(mapping) {
     const { labelLeft, labelRight } = mapping;
 
-    // Select two practice videos: one from speed 1.5 (playing-like) and one from 9 (fighting-like)
+    // Select three practice videos: one from speed 1.5 (playing-like), one from 5.25 (neutral), and one from 9 (fighting-like)
     const pracLow  = trialMetadata.find(t => t.chargeSpeed === 1.5);
+    const pracNeutral = trialMetadata.find(t => t.chargeSpeed === 5.25);
     const pracHigh = trialMetadata.find(t => t.chargeSpeed === 9);
 
-    if (!pracLow || !pracHigh) {
+    if (!pracLow || !pracNeutral || !pracHigh) {
         console.warn('Practice trial metadata not found — check trialMetadata import.');
     }
 
     const pracLowInfo  = { ...pracLow,  soundCondition: 'same', videoSrc: videoPath('same', pracLow?.trialID  ?? '') };
+    const pracNeutralInfo = { ...pracNeutral, soundCondition: 'same', videoSrc: videoPath('same', pracNeutral?.trialID ?? '') };
     const pracHighInfo = { ...pracHigh, soundCondition: 'same', videoSrc: videoPath('same', pracHigh?.trialID ?? '') };
 
     const respTrial  = buildResponseTrial(labelLeft, labelRight);
@@ -610,7 +612,7 @@ function buildPracticeBlock(mapping) {
             type              : surveyHtmlForm,
             preamble: `
                 <h2>Practice Trials</h2>
-                <p>You will now watch two short practice videos to get familiar with the task.</p>
+                <p>You will now watch three short practice videos to get familiar with the task.</p>
                 <p>After each video, you will be asked:</p>
                 <ul style="text-align:left; display:inline-block;">
                     <li>Whether the depicted interaction appeared to be <strong>playing</strong> or <strong>fighting</strong></li>
@@ -633,6 +635,14 @@ function buildPracticeBlock(mapping) {
         // Practice trial 2 (high speed)
         { type: CallFunctionPlugin, func: () => { document.body.style.cursor = 'none'; } },
         { ...buildVideoTrial(pracHighInfo), data: { ...buildVideoTrial(pracHighInfo).data, isPractice: true } },
+        buildITI(),
+        { ...respTrial, data: { ...respTrial.data, isPractice: true } },
+        buildITI(),
+        { ...confTrial, data: { ...confTrial.data, isPractice: true } },
+        buildITI(),
+        // Practice trial 3 (neutral speed)
+        { type: CallFunctionPlugin, func: () => { document.body.style.cursor = 'none'; } },
+        { ...buildVideoTrial(pracNeutralInfo), data: { ...buildVideoTrial(pracNeutralInfo).data, isPractice: true } },
         buildITI(),
         { ...respTrial, data: { ...respTrial.data, isPractice: true } },
         buildITI(),
@@ -738,6 +748,13 @@ function buildDemographicSurvey() {
             type : surveyMultiChoice,
             data : { task: 'demographic' },
             questions: [
+                {
+                    prompt    : '<strong>What do the dots represent?</strong>',
+                    name      : 'coverstory',
+                    options   : ['animals', 'children', 'balls', 'adults', 'magnet'],
+                    required  : true,
+                    horizontal: true,
+                },
                 {
                     prompt    : '<strong>Did you notice the sound changes when the two dots contact each other?</strong>',
                     name      : 'sound_awareness',
@@ -1024,14 +1041,14 @@ function buildPreExperiment(jsPsych) {
             type         : surveyHtmlForm,
             preamble: `
                 <h2>Experiment Instructions</h2>
-                <p style="text-align:left;">We recently videotaped a public park where nearby children go and 
+                <p style="text-align:left;">We recently videotaped a public park where nearby <strong>children</strong> go and 
                 recorded the sounds as they interacted, with the goal of capturing the essence of children's 
                 behaviors within a familiar park setting. To protect the identities of these young people, we 
-                used an algorithm that represents a pair of children as two dots, each tracing the path of an 
+                used an algorithm that <strong>represents a pair of children as two dots</strong>, each tracing the path of an 
                 individual child, and replaced actual voices with a scrambled noise signal. </p>
 
                 <p style="text-align:left;">In this study, you will watch the videos and make judgments
-                 about the social interactions depicted. After each video, click on "play" or "fight" to 
+                 about the social interactions depicted. After each video, click on <strong>"play"</strong> or <strong>"fight"</strong> to 
                  indicate your judgment. Then, indicate how confident you are in your judgment using 
                  the slider.</p>`,
             html         : ' ',
