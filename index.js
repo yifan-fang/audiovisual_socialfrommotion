@@ -729,10 +729,30 @@ function buildDemographicSurvey() {
     return [
         {
             type  : surveyHtmlForm,
-            preamble: '<p>Thank you for completing the experiment! Please answer a few brief demographic questions.</p>',
+            preamble: '<p>Thank you for finishing the experiment! Please answer a few questions to complete the study.</p>',
             html  : ' ',
             button_label: 'Continue',
             response_ends_trial: true,
+        },
+        {
+            type : surveyMultiChoice,
+            data : { task: 'demographic' },
+            questions: [
+                {
+                    prompt    : '<strong>Did you notice the sound changes when the two dots contact each other?</strong>',
+                    name      : 'sound_awareness',
+                    options   : ['Yes, sometimes louder', 'Yes, sometimes softer', 'Yes, sometimes louder and sometimes softer', 'No change noticed'],
+                    required  : true,
+                    horizontal: true,
+                },
+                {
+                    prompt    : '<strong>Did you notice the dots move at different speeds?</strong>',
+                    name      : 'speed_awareness',
+                    options   : ['Yes', 'No'],
+                    required  : true,
+                    horizontal: true,
+                },
+            ],
         },
         {
             type : surveyMultiChoice,
@@ -796,6 +816,17 @@ function buildDemographicSurvey() {
                 <input type="text" name="strategy" style="width:500px;"><br><br>
                 <p style="text-align:left;"><strong>Any other feedback about the task? (optional)</strong></p>
                 <input type="text" name="feedback" style="width:500px;">`,
+        },
+        {
+            type  : surveyHtmlForm,
+            preamble: `<p>In case you are curious, we are investigating the effects of cross-modal sensory inputs on social judgment.
+                        You may noticed that the speed of circles vary when they start to move towards each other, and the sound accompanying
+                        the contact also changes across trials. 
+                        We hypothesized that people are more likely to judge an interaction as play when the speed is slow when reaching
+                        towards each other and when the contact sound was softer, and vice versa.</p>`,
+            html  : ' ',
+            button_label: 'Continue',
+            response_ends_trial: true,
         },
     ];
 }
@@ -1010,27 +1041,72 @@ function buildPreExperiment(jsPsych) {
         // Device / environment
         {
             type         : surveyHtmlForm,
-            preamble     : '<p>Please turn off any music, podcasts, or other audio before continuing.</p>',
+            preamble     : `<p>This experiment requires you to be in a quiet environment. 
+                            Please turn off any music, podcasts, or other audio before continuing.</p>`,
             html         : ' ',
             button_label : 'Done — Continue',
             response_ends_trial: true,
         },
-        // ── Audio unlock ──────────────────────────────────────────────────────
-        // Browsers require a user gesture before allowing audio playback.
-        // This page's button click acts as that gesture, unlocking audio for
-        // all subsequent video trials in the session.
+        // ── Volume adjustment + Audio unlock ──────────────────────────────────
+        // Participants play a sample sound (unlimited replays) to set a comfortable
+        // volume. The Play-button click also serves as the user gesture that
+        // unlocks audio autoplay for all subsequent video trials.
         {
             type    : surveyHtmlForm,
             preamble: `
-                <h2>Audio Setup</h2>\
-                <p>Please make sure your <strong>volume is turned up</strong> and
-                you are wearing <strong>headphones</strong> if possible.</p>
-                <p>Click the button below continue.</p>`,
-            html    : ' ',
-            button_label: 'Continue',
+                <h2>Audio Setup</h2>
+                <p>Please put on your headphones. If you do not have headphones, you can use earbuds
+                (headphones are preferred). Please make sure you are wearing wired earbuds or earphones
+                without noise cancellation.</p>
+                <p>Play the sound below. Adjust your volume to a comfortable level where you can clearly
+                hear the sound. You may replay it as many times as you like.</p>
+                <p>Keep this volume level for the rest of the experiment.</p>
+                <p>When you are ready, click the button below to continue.</p>`,
+            // The audio element is hidden; a custom button drives playback so we
+            // can label it clearly and allow unlimited replays. preload="auto"
+            // ensures the file is buffered before the participant clicks Play.
+            html    : `
+                <audio id="volume-check-audio" src="volume_adjust.mp3" preload="auto"></audio>
+                <button type="button" id="play-volume-check" class="jspsych-btn"
+                        style="margin: 10px 0; font-size: 1.05em;">
+                    ▶ Play sound
+                </button>
+                <p id="volume-check-status" style="font-size: 0.9em; color: #666; min-height: 1.2em;"></p>`,
+            button_label: 'Done — Continue',
             response_ends_trial: true,
+            on_load: function () {
+                // Wire up the replay button. We attach the listener in on_load
+                // (not inline onclick) so it runs after jsPsych injects the HTML.
+                const audioEl = document.getElementById('volume-check-audio');
+                const playBtn = document.getElementById('play-volume-check');
+                const status  = document.getElementById('volume-check-status');
+
+                playBtn.addEventListener('click', function () {
+                    // Restart from the beginning on every click so replays are
+                    // consistent even if the participant clicks mid-playback.
+                    audioEl.currentTime = 0;
+                    const playPromise = audioEl.play();
+                    // play() returns a promise in modern browsers; a rejection
+                    // usually means the autoplay/gesture policy blocked it.
+                    if (playPromise !== undefined) {
+                        playPromise
+                            .then(()  => { status.textContent = 'Playing…'; })
+                            .catch(e => {
+                                console.warn('Audio playback blocked:', e);
+                                status.textContent =
+                                    'Playback was blocked by your browser. Please click Play again.';
+                            });
+                    }
+                });
+
+                audioEl.addEventListener('ended', function () {
+                    status.textContent = 'Finished — click Play to hear it again.';
+                });
+            },
             on_finish: function () {
                 // Play a silent buffer through AudioContext to unlock audio autoplay
+                // for the rest of the session (belt-and-suspenders alongside the
+                // real playback the participant just triggered).
                 try {
                     const ctx = new (window.AudioContext || window.webkitAudioContext)();
                     const buf = ctx.createBuffer(1, 1, 22050);
