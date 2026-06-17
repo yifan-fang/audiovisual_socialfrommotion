@@ -1041,30 +1041,49 @@ function buildPreExperiment(jsPsych) {
         // Device / environment
         {
             type         : surveyHtmlForm,
-            preamble     : `<p>This experiment requires you to be in a quiet environment. 
-                            Please turn off any music, podcasts, or other audio before continuing.</p>`,
+            preamble     : '<p>This experiment requires you to be in a quiet environment.' + 
+                            '<p>Please turn off any music, podcasts, or other audio before continuing.</p>' +
+                            `<p>Please put on your headphones. If you do not have headphones, you can use earbuds
+                                (headphones are preferred). Please make sure you are wearing wired earbuds or earphones
+                                without noise cancellation.</p>`,
             html         : ' ',
             button_label : 'Done — Continue',
             response_ends_trial: true,
         },
-        // ── Volume adjustment + Audio unlock ──────────────────────────────────
-        // Participants play a sample sound (unlimited replays) to set a comfortable
-        // volume. The Play-button click also serves as the user gesture that
-        // unlocks audio autoplay for all subsequent video trials.
+        // Full-screen
+        {
+            type           : fullscreen,
+            fullscreen_mode: true,
+            message        : '<p>The experiment will now enter full-screen mode.</p>',
+            button_label   : 'Enter Full Screen',
+        },
+    ];
+}
+
+// ════════════════════════════════════════════════════════════
+//  11b.  VOLUME ADJUSTMENT  (runs AFTER the headphone check)
+// ════════════════════════════════════════════════════════════
+
+/**
+ * buildVolumeAdjust()
+ * -------------------
+ * Lets the participant play a sample sound (unlimited replays) to set a
+ * comfortable volume. Placed after the headphone check so they have already
+ * confirmed headphones are connected before tuning their level.
+ *
+ * The Play-button click also acts as the user gesture that unlocks audio
+ * autoplay for all subsequent video trials.
+ */
+function buildVolumeAdjust() {
+    return [
         {
             type    : surveyHtmlForm,
             preamble: `
                 <h2>Audio Setup</h2>
-                <p>Please put on your headphones. If you do not have headphones, you can use earbuds
-                (headphones are preferred). Please make sure you are wearing wired earbuds or earphones
-                without noise cancellation.</p>
-                <p>Play the sound below. Adjust your volume to a comfortable level where you can clearly
-                hear the sound. You may replay it as many times as you like.</p>
-                <p>Keep this volume level for the rest of the experiment.</p>
+                <p>Now that your headphones are set up, play the sound below and adjust your
+                volume to a comfortable level where you can clearly hear it. You may replay it
+                as many times as you like.</p>
                 <p>When you are ready, click the button below to continue.</p>`,
-            // The audio element is hidden; a custom button drives playback so we
-            // can label it clearly and allow unlimited replays. preload="auto"
-            // ensures the file is buffered before the participant clicks Play.
             html    : `
                 <audio id="volume-check-audio" src="volume_adjust.mp3" preload="auto"></audio>
                 <button type="button" id="play-volume-check" class="jspsych-btn"
@@ -1075,19 +1094,15 @@ function buildPreExperiment(jsPsych) {
             button_label: 'Done — Continue',
             response_ends_trial: true,
             on_load: function () {
-                // Wire up the replay button. We attach the listener in on_load
-                // (not inline onclick) so it runs after jsPsych injects the HTML.
+                // Attach the replay listener after jsPsych injects the HTML.
                 const audioEl = document.getElementById('volume-check-audio');
                 const playBtn = document.getElementById('play-volume-check');
                 const status  = document.getElementById('volume-check-status');
 
                 playBtn.addEventListener('click', function () {
-                    // Restart from the beginning on every click so replays are
-                    // consistent even if the participant clicks mid-playback.
+                    // Restart from the beginning on every click for consistent replays.
                     audioEl.currentTime = 0;
                     const playPromise = audioEl.play();
-                    // play() returns a promise in modern browsers; a rejection
-                    // usually means the autoplay/gesture policy blocked it.
                     if (playPromise !== undefined) {
                         playPromise
                             .then(()  => { status.textContent = 'Playing…'; })
@@ -1104,9 +1119,7 @@ function buildPreExperiment(jsPsych) {
                 });
             },
             on_finish: function () {
-                // Play a silent buffer through AudioContext to unlock audio autoplay
-                // for the rest of the session (belt-and-suspenders alongside the
-                // real playback the participant just triggered).
+                // Silent-buffer unlock as a fallback for subsequent video trials.
                 try {
                     const ctx = new (window.AudioContext || window.webkitAudioContext)();
                     const buf = ctx.createBuffer(1, 1, 22050);
@@ -1119,17 +1132,8 @@ function buildPreExperiment(jsPsych) {
                 }
             },
         },
-
-        // Full-screen
-        {
-            type           : fullscreen,
-            fullscreen_mode: true,
-            message        : '<p>The experiment will now enter full-screen mode.</p>',
-            button_label   : 'Enter Full Screen',
-        },
     ];
 }
-
 
 
 // ════════════════════════════════════════════════════════════
@@ -1442,6 +1446,7 @@ async function runExperiment() {
         ...buildRefreshRateCheck(jsPsych),
         ...buildPreExperiment(jsPsych),
         ...buildHeadphoneCheck(),       // headphone screening after consent
+        ...buildVolumeAdjust(),
         ...buildPracticeBlock(mapping),
         ...buildMainExperiment(blocks, mapping),
         ...buildDemographicSurvey(),
