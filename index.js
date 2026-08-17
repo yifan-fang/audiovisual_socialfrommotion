@@ -729,7 +729,132 @@ function buildMainExperiment(blocks, mapping) {
     return trials;
 }
 
+// ════════════════════════════════════════════════════════════
+//  9a.  SOUND (LOUDNESS) DISCRIMINATION CHECK
+// ════════════════════════════════════════════════════════════
 
+/**
+ * buildSoundCheck()
+ * -----------------
+ * End-of-experiment manipulation check: verifies participants can actually
+ * discriminate the +/-6 dB sound levels used in the videos.
+ *
+ * Three forced-choice trials, one per condition pair:
+ *     same vs lower  |  same vs higher  |  lower vs higher
+ * Each trial plays ONE pre-baked file containing both bursts (A -> gap -> B);
+ * the participant clicks whether the FIRST or SECOND sound was softer.
+ *
+ * Counterbalancing: for each pair we randomly pick which order-variant file to
+ * play, so "softer" isn't always in the same position; trial order is shuffled.
+ *
+ * The two choice buttons start DISABLED and unlock only after the pair has
+ * finished playing once, so a response always reflects having heard both.
+ * Replays are allowed and counted. The Play-button click is the user gesture
+ * that satisfies browser autoplay policy (same pattern as buildVolumeAdjust).
+ *
+ * Data (task:'sound_check'): pair, first_condition, second_condition,
+ *   softer_position (1|2), response_position (1|2), correct (0|1), n_replays, rt
+ *
+ * Requires the WAVs from generate_sound_check.py in SOUND_CHECK_BASE_PATH.
+ */
+const SOUND_CHECK_BASE_PATH = './soundCheckAudios';
+const SC_LEVEL = { lower: 0, same: 1, higher: 2 };  // relative rank -> softer position
+
+function buildSoundCheck() {
+    const pairs = [
+        { pair: 'same_vs_lower',   a: 'same',  b: 'lower'  },
+        { pair: 'same_vs_higher',  a: 'same',  b: 'higher' },
+        { pair: 'lower_vs_higher', a: 'lower', b: 'higher' },
+    ];
+
+    // One jsPsych trial per pair; pair order shuffled, presentation order randomised.
+    const trials = shuffled(pairs).map(({ pair, a, b }) => {
+        const [first, second] = Math.random() < 0.5 ? [a, b] : [b, a];
+        const src       = `${SOUND_CHECK_BASE_PATH}/check_${first}_${second}.wav`;
+        const softerPos = SC_LEVEL[first] < SC_LEVEL[second] ? 1 : 2;
+
+        return {
+            type: htmlButtonResponse,
+            stimulus: `
+                <div style="text-align:center;">
+                    <p>You will hear <strong>two sounds</strong>, one after the other.</p>
+                    <p><strong>Which sound was softer (quieter)?</strong></p>
+                    <audio id="sc-audio" src="${src}" preload="auto"></audio>
+                    <button type="button" id="sc-play" class="jspsych-btn" style="margin:10px 0;">
+                        ▶ Play the two sounds
+                    </button>
+                    <p id="sc-status" style="font-size:0.9em; color:#666; min-height:1.2em;">
+                        Click Play to hear the two sounds.
+                    </p>
+                </div>`,
+            // Choice buttons render DISABLED; unlocked after first full playback.
+            choices     : ['First sound was softer', 'Second sound was softer'],
+            button_html : '<button class="jspsych-btn sc-choice" disabled>%choice%</button>',
+            response_ends_trial: true,
+            trial_duration     : null,
+            data: {
+                task            : 'sound_check',
+                pair,
+                first_condition : first,
+                second_condition: second,
+                softer_position : softerPos,
+            },
+            on_load: function () {
+                const audioEl = document.getElementById('sc-audio');
+                const playBtn = document.getElementById('sc-play');
+                const status  = document.getElementById('sc-status');
+                const choices = document.querySelectorAll('.sc-choice');
+
+                let played   = false;   // has the pair finished at least once?
+                let nReplays = 0;       // count plays after the first
+
+                playBtn.addEventListener('click', function () {
+                    if (played) nReplays++;          // every click after the first = a replay
+                    audioEl.currentTime = 0;
+                    audioEl.play()
+                        .then(()  => { status.textContent = 'Playing…'; })
+                        .catch(e => {
+                            console.warn('Sound-check playback blocked:', e);
+                            status.textContent = 'Playback was blocked — click Play again.';
+                        });
+                });
+
+                // Unlock the response buttons the FIRST time the pair finishes.
+                audioEl.addEventListener('ended', function () {
+                    played = true;
+                    choices.forEach(btn => { btn.disabled = false; });
+                    status.textContent = 'Now choose which sound was softer. (You may replay.)';
+                });
+
+                this._getReplays = () => nReplays;   // expose to on_finish
+            },
+            on_finish: function (data) {
+                // data.response is the clicked button index (0 = first, 1 = second).
+                const responsePos      = data.response === 0 ? 1 : 2;
+                data.response_position = responsePos;
+                data.correct           = responsePos === data.softer_position ? 1 : 0;
+                data.n_replays         = this._getReplays ? this._getReplays() : 0;
+                this._getReplays       = null;
+            },
+        };
+    });
+
+    // Intro screen (also gives the tiny WAVs a moment to buffer before trial 1).
+    const intro = {
+        type    : surveyHtmlForm,
+        preamble: `
+            <h2>One last listening task</h2>
+            <p>On each of the next <strong>three</strong> trials you will hear two sounds
+               played one after the other, with a short gap between them.</p>
+            <p>Decide <strong>which sound was softer</strong> — the first or the second.
+               Press Play, then click your answer.</p>`,
+        html    : ' ',
+        button_label      : 'Start',
+        response_ends_trial: true,
+    };
+
+    return [intro, ...trials];
+}
 
 // ════════════════════════════════════════════════════════════
 //  9.  DEMOGRAPHIC SURVEY
@@ -1058,7 +1183,7 @@ function buildPreExperiment(jsPsych) {
         // Device / environment
         {
             type         : surveyHtmlForm,
-            preamble     : '<p>This experiment requires you to be in a quiet environment.' + 
+            preamble     : '<p><strong>This experiment requires you to be in a quiet environment.</strong></p>' + 
                             '<p>Please turn off any music, podcasts, or other audio before continuing.</p>' +
                             `<p>Please put on your headphones. If you do not have headphones, you can use earbuds
                                 (headphones are preferred). Please make sure you are wearing wired earbuds or earphones
@@ -1098,11 +1223,15 @@ function buildVolumeAdjust() {
             preamble: `
                 <h2>Audio Setup</h2>
                 <p>Now that your headphones are set up, play the sound below and adjust your
-                volume to a comfortable level where you can clearly hear it. You may replay it
-                as many times as you like.</p>
+                volume following the instructions. </p>
+                <p> 1. Turn your volume down to where you almost can\'t hear the noise.<br>
+                    2. Then slowly turn the volume down just a little more until you can\'t hear the noise any more.<br>
+                    3. Then turn it up a tiny bit until you can just barely the noise.</p>
+                <p><strong>Please keep the volume as you have it now and do not make any adjustments/changes throughout the experiment!</strong></p>
+                </p>
                 <p>When you are ready, click the button below to continue.</p>`,
             html    : `
-                <audio id="volume-check-audio" src="volume_adjust.mp3" preload="auto"></audio>
+                <audio id="volume-check-audio" src="volume_adjust.wav" preload="auto"></audio>
                 <button type="button" id="play-volume-check" class="jspsych-btn"
                         style="margin: 10px 0; font-size: 1.05em;">
                     ▶ Play sound
@@ -1126,7 +1255,7 @@ function buildVolumeAdjust() {
                             .catch(e => {
                                 console.warn('Audio playback blocked:', e);
                                 status.textContent =
-                                    'Playback was blocked by your browser. Please click Play again.';
+                                    'Playback was blocked by your browser. Click Play again.';
                             });
                     }
                 });
@@ -1341,6 +1470,14 @@ function saveAndReturn(startExperimentTime) {
     // Headphone check result
     const hcData       = jsPsych.data.get().filter({ task: 'headphone_check' }).values()[0];
 
+    // Sound-check (loudness discrimination) results — one row per pair.
+    const soundCheck = jsPsych.data.get().filter({ task: 'sound_check' }).values()
+        .map(r => ({
+            pair: r.pair, first_condition: r.first_condition, second_condition: r.second_condition,
+            softer_position: r.softer_position, response_position: r.response_position,
+            correct: r.correct, n_replays: r.n_replays, rt: r.rt,
+        }));
+
     // Refresh rate (logged once during the refresh-rate check)
     const refreshRate  = jsPsych.data.get().values()
                            .find(d => d.refresh_rate_hz)?.refresh_rate_hz ?? null;
@@ -1370,6 +1507,8 @@ function saveAndReturn(startExperimentTime) {
         hc_passed       : hcData?.hc_passed       ?? null,
         hc_totalCorrect : hcData?.hc_totalCorrect ?? null,
         hc_numTrials    : hcData?.hc_numTrials     ?? null,
+        sc_totalCorrect : soundCheck.filter(r => r.correct === 1).length,
+        sc_numTrials    : soundCheck.length,
     });
 
     // Stamp subject_id onto every trial row so the two tables join cleanly.
@@ -1378,6 +1517,7 @@ function saveAndReturn(startExperimentTime) {
     const curData = {
         // Two clean tables — this is all the analysis needs.
         trials,         // pd.DataFrame(curData.trials)
+        soundCheck,    // pd.DataFrame(curData.soundCheck)
         demographics,   // pd.DataFrame([curData.demographics])
 
         // Raw jsPsych dump kept ONLY in debug, for troubleshooting. In a live
@@ -1390,7 +1530,7 @@ function saveAndReturn(startExperimentTime) {
         experimenter   : 'YF',
         experimentName : DEBUG
                            ? 'audiovisual_socialfrommotion_DEBUG'   // ⚠️ separate name for debug
-                           : 'audiovisual_socialfrommotion_pilot',  // ⚠️ update experimentName per study
+                           : 'audiovisual_socialfrommotion_exp1_replication',  // ⚠️ update experimentName per study
         curData        : JSON.stringify(curData),
     };
 
@@ -1466,6 +1606,7 @@ async function runExperiment() {
         ...buildVolumeAdjust(),
         ...buildPracticeBlock(mapping),
         ...buildMainExperiment(blocks, mapping),
+        ...buildSoundCheck(),
         ...buildDemographicSurvey(),
 
         // Final debrief
