@@ -55,7 +55,7 @@ var jsPsych;
 // ── Debug mode ───────────────────────────────────────────────
 // Set DEBUG = 1 to run a short 3-trial version for testing.
 // Set DEBUG = 0 for the full experiment.
-const DEBUG = 0;
+const DEBUG = 1;
 
 // Speed levels and which ones get extra videos
 const SPEED_LEVELS      = [1.5, 2.75, 4, 5.25, 6.5, 7.75, 9];
