@@ -1,2 +1,5 @@
 # crossmodal_socialfrommotion
-This is the repository for the project "social judgments on cross-modal moving dots".
+This repository contains experiment code, data, and analysis code for project "social judgments on cross-modal moving dots".
+
+
+
