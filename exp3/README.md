@@ -1,1 +1,1 @@
-This folder contains data for exp3
+This folder contains code for exp3
